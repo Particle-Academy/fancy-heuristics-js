@@ -1,5 +1,7 @@
 # @particle-academy/fancy-heuristics-js
 
+[![Fancified](art/fancified.svg)](https://particle.academy)
+
 Zero-dependency **browser collector SDK** for [Fancy
 Heuristics](https://github.com/Particle-Academy/fancy-heuristics). It batches
 human **and** agent interaction events — `pageview`, `click`, `scroll` depth,
