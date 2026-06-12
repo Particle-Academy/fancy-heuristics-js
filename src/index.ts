@@ -24,6 +24,7 @@ export {
   type SessionStore,
 } from "./session.ts";
 export { tapAgentActivity, mapActivityToEvent } from "./agent.ts";
+export { buildContext, parseUtm } from "./context.ts";
 export type {
   Actor,
   Collector,
@@ -31,5 +32,6 @@ export type {
   CollectBatch,
   EventKind,
   HeuristicsEvent,
+  SessionContext,
   TrackConfig,
 } from "./types.ts";

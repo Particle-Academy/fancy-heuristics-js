@@ -4,7 +4,7 @@
  * (survives page unload), falling back to a keepalive `fetch`. The buffer is a
  * plain array so it unit-tests with an injected `send` spy and no network.
  */
-import type { CollectBatch, HeuristicsEvent } from "./types.ts";
+import type { CollectBatch, HeuristicsEvent, SessionContext } from "./types.ts";
 
 /** Pluggable transport — returns true if the batch was handed off. */
 export type SendFn = (url: string, body: string) => boolean;
@@ -13,6 +13,11 @@ export interface BufferOptions {
   siteKey: string;
   endpoint: string;
   sessionId: string;
+  /**
+   * Once-per-session context. Attached to the FIRST batch this buffer ships,
+   * then dropped so later batches stay small. Omitted when undefined.
+   */
+  context?: SessionContext;
   /** Transport. Defaults to sendBeacon → fetch. */
   send?: SendFn;
 }
@@ -23,11 +28,14 @@ export class EventBuffer {
   private readonly url: string;
   private readonly sessionId: string;
   private readonly send: SendFn;
+  /** Pending once-per-session context; cleared after the first successful send. */
+  private context: SessionContext | undefined;
 
   constructor(opts: BufferOptions) {
     this.siteKey = opts.siteKey;
     this.url = joinCollect(opts.endpoint);
     this.sessionId = opts.sessionId;
+    this.context = opts.context;
     this.send = opts.send ?? defaultSend;
   }
 
@@ -57,9 +65,16 @@ export class EventBuffer {
       sessionId: this.sessionId,
       events: this.events,
     };
+    // Attach the once-per-session context to the first batch only.
+    if (this.context !== undefined) batch.context = this.context;
     const body = JSON.stringify(batch);
     const ok = this.send(this.url, body);
-    if (ok) this.events = [];
+    if (ok) {
+      this.events = [];
+      // Drop the context so subsequent batches stay small. Kept on failure so
+      // the retry still carries it.
+      this.context = undefined;
+    }
   }
 }
 

@@ -7,6 +7,7 @@
  */
 import { tapAgentActivity } from "./agent.ts";
 import { EventBuffer } from "./buffer.ts";
+import { buildContext } from "./context.ts";
 import {
   buildClick,
   buildDwell,
@@ -43,10 +44,14 @@ export function createCollector(opts: CollectorOptions): Collector {
   const scrollThrottleMs = opts.scrollThrottleMs ?? DEFAULT_SCROLL_THROTTLE_MS;
 
   const sessionId = resolveSessionId();
+  // Once-per-session acquisition/audience context — built here so a non-browser
+  // context degrades to `undefined`. Attached to the first batch only (buffer).
+  const context = buildContext();
   const buffer = new EventBuffer({
     siteKey: opts.siteKey,
     endpoint: opts.endpoint,
     sessionId,
+    ...(context !== undefined ? { context } : {}),
   });
 
   // ── runtime state ──────────────────────────────────────────────────────────

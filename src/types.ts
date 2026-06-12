@@ -41,11 +41,46 @@ export interface HeuristicsEvent {
   meta?: Record<string, unknown>;
 }
 
+/**
+ * Once-per-session acquisition/audience context — how the visitor arrived and
+ * what their environment looks like, so the server can build GA-style
+ * acquisition + audience reports. Captured from browser built-ins and attached
+ * to the FIRST `CollectBatch` of a session only (subsequent batches omit it).
+ * Every field is optional and omitted (never `null`) when unavailable.
+ */
+export interface SessionContext {
+  /** `document.referrer` — empty string when navigated directly. */
+  referrer?: string;
+  /** Campaign params lifted from `location.search`; only present keys included. */
+  utm?: {
+    source?: string;
+    medium?: string;
+    campaign?: string;
+    term?: string;
+    content?: string;
+  };
+  /** `navigator.language`. */
+  lang?: string;
+  /** IANA timezone from `Intl.DateTimeFormat().resolvedOptions().timeZone`. */
+  tz?: string;
+  /** `screen.width`. */
+  screenW?: number;
+  /** `screen.height`. */
+  screenH?: number;
+  /** `window.devicePixelRatio`. */
+  dpr?: number;
+}
+
 /** The batched POST body sent to `${endpoint}/collect`. */
 export interface CollectBatch {
   siteKey: string;
   sessionId: string;
   events: HeuristicsEvent[];
+  /**
+   * Session context — present ONLY on the first batch of a session. Optional so
+   * older servers (and every later batch) simply omit it.
+   */
+  context?: SessionContext;
 }
 
 /** Which signal families to capture. All default to `true`. */
