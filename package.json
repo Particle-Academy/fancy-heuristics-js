@@ -1,6 +1,6 @@
 {
   "name": "@particle-academy/fancy-heuristics-js",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Zero-dependency browser collector SDK for Fancy Heuristics \u2014 batches human + agent interaction events (pageview, click, scroll, pointer heatmap, dwell) and ships them via navigator.sendBeacon to a fancy-heuristics PHP ingestion endpoint. Mirrors the PHP record surface. Optional peer @particle-academy/fancy-auto-common taps the agent activity bus.",
   "repository": {
     "type": "git",

@@ -78,9 +78,24 @@ export class EventBuffer {
   }
 }
 
-/** Append `/collect`, tolerating a trailing slash on the endpoint. */
+/**
+ * Append `/collect`, tolerating a trailing slash on the endpoint.
+ *
+ * Trimmed by index rather than `replace(/\/+$/, "")`. That pattern is a
+ * polynomial-ReDoS shape (CodeQL `js/polynomial-redos`, high): the engine
+ * retries `\/+$` from every position, so an endpoint of many slashes that does
+ * not end in one costs O(n²). The endpoint is library input — a host passes it
+ * in — so it is not automatically trustworthy, and this runs on the browser's
+ * main thread where a stall is user-visible.
+ *
+ * The loop is O(n), allocates nothing, and needs no regex engine.
+ */
 export function joinCollect(endpoint: string): string {
-  return endpoint.replace(/\/+$/, "") + "/collect";
+  const SLASH = 47; // '/'
+  let end = endpoint.length;
+  while (end > 0 && endpoint.charCodeAt(end - 1) === SLASH) end--;
+
+  return endpoint.slice(0, end) + "/collect";
 }
 
 /** Default transport: sendBeacon, then keepalive fetch, then drop. */

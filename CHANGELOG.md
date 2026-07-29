@@ -14,6 +14,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-07-29
+
+### Security
+
+- **`joinCollect` could stall the browser's main thread on a hostile endpoint**
+  (CodeQL `js/polynomial-redos`, high). It trimmed trailing slashes with
+  `replace(/\/+$/, "")`; the engine retries `\/+$` from every position, so an
+  endpoint containing a long run of slashes that does *not* end in one costs
+  O(n²) — seconds of frozen UI for a ~100k-character value.
+
+  The endpoint is library input, supplied by the host, so it is not
+  automatically trustworthy, and this runs on the main thread where a stall is
+  visible to the user rather than buried in a worker.
+
+  Now trimmed by index in one linear pass, with no regex engine involved.
+  **No action needed** — the output is identical for every input; only the
+  timing changed. A test asserts a wall-clock budget on the pathological case
+  and fails against the previous implementation.
+
 ### Changed
 
 - Widened the `@particle-academy/fancy-auto-common` requirement from `^0.1.0` to `>=0.1 <2.0`, so a

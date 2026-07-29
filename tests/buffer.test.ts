@@ -8,6 +8,28 @@ test("joinCollect appends /collect, tolerating trailing slash", () => {
   assert.equal(joinCollect("https://h/heuristics"), "https://h/heuristics/collect");
   assert.equal(joinCollect("https://h/heuristics/"), "https://h/heuristics/collect");
   assert.equal(joinCollect("https://h/heuristics///"), "https://h/heuristics/collect");
+  // Slashes in the middle are not trailing and must survive untouched.
+  assert.equal(joinCollect("https://h//a//b"), "https://h//a//b/collect");
+  assert.equal(joinCollect(""), "/collect");
+  assert.equal(joinCollect("/"), "/collect");
+});
+
+test("joinCollect stays linear on a pathological endpoint", () => {
+  // This is the case CodeQL flagged (js/polynomial-redos, high). The old
+  // `replace(/\/+$/, "")` retried the pattern from every position, so a long run
+  // of slashes NOT terminated by one cost O(n^2) — seconds of blocked main
+  // thread for a ~100k-char endpoint. The index scan is O(n).
+  //
+  // Asserted as a wall-clock budget rather than a shape, because the defect was
+  // never about which characters came out — the old and new code agree on that.
+  const hostile = "https://h/" + "/".repeat(120_000) + "x";
+
+  const started = process.hrtime.bigint();
+  const out = joinCollect(hostile);
+  const ms = Number(process.hrtime.bigint() - started) / 1e6;
+
+  assert.equal(out, hostile + "/collect", "no trailing slash, so nothing is trimmed");
+  assert.ok(ms < 250, `joinCollect took ${ms.toFixed(1)}ms — expected linear time`);
 });
 
 test("flush sends one batch matching the wire contract { siteKey, sessionId, events }", () => {
