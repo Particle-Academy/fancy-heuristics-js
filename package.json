@@ -1,7 +1,7 @@
 {
   "name": "@particle-academy/fancy-heuristics-js",
-  "version": "0.2.1",
-  "description": "Zero-dependency browser collector SDK for Fancy Heuristics \u2014 batches human + agent interaction events (pageview, click, scroll, pointer heatmap, dwell) and ships them via navigator.sendBeacon to a fancy-heuristics PHP ingestion endpoint. Mirrors the PHP record surface. Optional peer @particle-academy/fancy-auto-common taps the agent activity bus.",
+  "version": "0.3.0",
+  "description": "Zero-dependency browser collector SDK for Fancy Heuristics — batches human + agent interaction events (pageview, click, scroll, pointer heatmap, dwell) and ships them via navigator.sendBeacon to a fancy-heuristics PHP ingestion endpoint. Mirrors the PHP record surface. Optional peer @particle-academy/fancy-auto-common taps the agent activity bus.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Particle-Academy/fancy-heuristics-js.git"
@@ -65,7 +65,7 @@
   ],
   "peerDependencies": {
     "@particle-academy/fancy-auto-common": ">=0.1 <2.0",
-    "react": "^18.0.0 || ^19.0.0"
+    "react": "^19.0.0"
   },
   "peerDependenciesMeta": {
     "react": {
@@ -77,16 +77,16 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "@types/react": "^19.0.0",
+    "@types/react": "^19.2.0",
     "eslint": "^10.8.0",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "react": "^19.0.0",
+    "react": "^19.2.0",
     "tsup": "^8.5.0",
     "typescript": "^5.8.0",
     "typescript-eslint": "^8.65.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "publishConfig": {
     "access": "public"
