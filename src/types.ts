@@ -161,6 +161,9 @@ export interface CollectBatchV2 {
  */
 export type CollectLevel = "essential" | "analytics" | "research";
 
+/** How a host states analytics consent. Anything but an explicit grant is "denied". */
+export type ConsentInput = boolean | "granted" | "denied" | (() => boolean);
+
 /** Which signal families to capture. Omitted families follow the collect level. */
 export interface TrackConfig {
   pageview?: boolean;
@@ -183,11 +186,12 @@ export interface CollectorOptions {
   /** Per-signal override of the tier. */
   track?: TrackConfig;
   /**
-   * Analytics consent. `"denied"` attaches nothing and sends nothing until
-   * `setConsent(true)`. Omitted = `"granted"`, for hosts that already gate
-   * mounting on consent themselves.
+   * Analytics consent. **Denied by default**: when omitted (or denied),
+   * nothing is attached and nothing is sent until `setConsent(true)`, and a
+   * development-only warning says so. Grant it with `true`, `"granted"`, or a
+   * callback read at `start()` (e.g. one that asks fancy-compliance).
    */
-  consent?: "granted" | "denied";
+  consent?: ConsentInput;
   /** Route name / pattern for the current location. Read on every view. */
   route?: () => RouteInfo | undefined;
   /** Page title for the current view. Default `document.title`. */

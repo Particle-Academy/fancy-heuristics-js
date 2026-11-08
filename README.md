@@ -37,7 +37,8 @@ import { createCollector } from "@particle-academy/fancy-heuristics-js";
 const collector = createCollector({
   siteKey: "YOUR_SITE_KEY",
   endpoint: "https://your-host/heuristics", // /collect is appended on flush
-  consent: hasAnalyticsConsent ? "granted" : "denied",
+  // Denied by default: without a grant nothing is collected.
+  consent: () => hasAnalyticsConsent(),
   // Laravel + Inertia: share the route from HandleInertiaRequests.
   route: () => ({ name: page.props.route?.name, pattern: page.props.route?.uri }),
 });
@@ -83,7 +84,7 @@ So a click on the radio's Play button records
 | `endpoint` | — (required) | Base URL; `/collect` is appended on flush. |
 | `collect` | `"analytics"` | `"essential"` (only `track()` / `view()`), `"analytics"`, or `"research"` (adds pointer samples). |
 | `track` | from `collect` | Per-signal override: `{ pageview, dwell, click, scroll, pointer, agent }`. |
-| `consent` | `"granted"` | `"denied"` attaches nothing and sends nothing until `setConsent(true)`. |
+| `consent` | **denied** | `true` / `"granted"` or a callback returning `true` grants it. Anything else (including leaving it out) attaches nothing and sends nothing until `setConsent(true)`, with one development-only warning. |
 | `route` | none | `() => ({ name?, pattern? })` for the current location. |
 | `title` | `document.title` | `() => string` for the current view. Bounded to 120 characters. |
 | `labels` | `"control"` | `"none"` records no accessible names. |

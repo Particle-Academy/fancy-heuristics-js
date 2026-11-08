@@ -137,6 +137,9 @@ async function collector(opts: Record<string, unknown> = {}) {
     endpoint: "https://h/heuristics",
     track: { agent: false },
     viewDelayMs: 0,
+    // Consent is denied by default; these tests grant it explicitly unless a
+    // test sets `consent` itself (even to undefined).
+    ...("consent" in opts ? {} : { consent: "granted" }),
     ...opts,
   } as any);
   live.push(c);
@@ -424,6 +427,69 @@ test("with consent denied nothing is collected or sent until it is granted, and 
     c.flush();
     assert.equal(h.sent.length, 1, "nothing more is sent after withdrawal");
     assert.equal(h.doc.count("click"), 0, "listeners removed on withdrawal");
+    c.stop();
+  } finally {
+    h.restore();
+  }
+});
+
+// ── consent is denied by default (owner ruling, 2026-11-08) ─────────────────────
+
+function captureWarnings(): { messages: string[]; restore(): void } {
+  const messages: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => {
+    messages.push(args.map(String).join(" "));
+  };
+  return { messages, restore: () => (console.warn = original) };
+}
+
+test("with no consent option nothing is collected or sent, and one development warning is logged", async () => {
+  const h = harness("/");
+  const w = captureWarnings();
+  try {
+    const c = await collector({ consent: undefined });
+    c.start();
+    h.doc.fire("click", { target: null, clientX: 1, clientY: 1 });
+    c.flush();
+    c.stop();
+    assert.equal(h.sent.length, 0, "nothing sent without consent");
+    assert.equal(h.doc.count("click"), 0, "no listeners without consent");
+    assert.equal(w.messages.filter((m) => m.includes("consent")).length, 1, "one warning");
+  } finally {
+    w.restore();
+    h.restore();
+  }
+});
+
+test("an explicit grant collects: consent true, 'granted', or a callback returning true", async () => {
+  for (const consent of [true, "granted", () => true]) {
+    const h = harness("/");
+    const w = captureWarnings();
+    try {
+      const c = await collector({ consent });
+      c.start();
+      c.flush();
+      assert.deepEqual(h.events().map((e) => e.name), ["ui.view"], `consent ${String(consent)}`);
+      assert.equal(w.messages.length, 0, "no warning when consent is given");
+      c.stop();
+    } finally {
+      w.restore();
+      h.restore();
+    }
+  }
+});
+
+test("a consent callback returning false collects nothing until setConsent(true)", async () => {
+  const h = harness("/");
+  try {
+    const c = await collector({ consent: () => false });
+    c.start();
+    c.flush();
+    assert.equal(h.sent.length, 0);
+    c.setConsent(true);
+    c.flush();
+    assert.deepEqual(h.events().map((e) => e.name), ["ui.view"]);
     c.stop();
   } finally {
     h.restore();

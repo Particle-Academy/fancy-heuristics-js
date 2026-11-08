@@ -24,6 +24,13 @@ agent tool calls counted as clicks. It needs `particle-academy/fancy-heuristics`
 
 ### Changed
 
+- **BREAKING — consent is denied by default. With no `consent` option,
+  nothing is collected.** The collector attaches no listener and sends
+  nothing, and in development it logs one console warning saying so.
+  **What you must do:** pass `consent: true` or a consent callback, or wire
+  fancy-compliance, otherwise nothing is collected. With fancy-compliance,
+  create the collector with its current `analytics` decision and call
+  `collector.setConsent(granted)` whenever that decision changes.
 - **BREAKING — the collector sends wire format v2.** Every batch carries
   `schemaVersion: 2`, a `batchId` and `sentAt`; every event carries an
   `eventId` and a `<domain>.<verb>` `name` (`ui.view`, `ui.activate`,
@@ -72,9 +79,10 @@ agent tool calls counted as clicks. It needs `particle-academy/fancy-heuristics`
 - **Route and title as separate fields.** `route: () => ({ name, pattern })`
   and `title: () => string` (default `document.title`, bounded to 120). The
   title is sent on `ui.view` only.
-- **Consent.** `consent: "denied"` attaches no listener and sends nothing
-  until `setConsent(true)`. `setConsent(false)` stops collection at once and
-  drops anything not yet sent. Omitted, consent is `"granted"`, as before.
+- **Consent.** `consent` takes `true` / `"granted"`, `false` / `"denied"`,
+  or a callback read at `start()`. `setConsent(true)` grants it later;
+  `setConsent(false)` stops collection at once and drops anything not yet
+  sent.
 - **Collection tiers.** `collect: "essential" | "analytics" | "research"`.
 - `collector.track(name, { target, props })`, `resolveTarget()`,
   `buildEvent()`, `CORE_NAMES`, `kindForName()` and the v2 types.

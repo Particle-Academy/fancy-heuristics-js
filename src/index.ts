@@ -36,6 +36,7 @@ export type {
   CollectBatch,
   CollectBatchV2,
   CollectLevel,
+  ConsentInput,
   EventKind,
   EventKindV2,
   EventName,

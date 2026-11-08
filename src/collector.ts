@@ -26,6 +26,7 @@ import { resolveTarget } from "./target.ts";
 import type {
   Actor,
   CollectLevel,
+  ConsentInput,
   Collector,
   CollectorOptions,
   EventProps,
@@ -88,7 +89,10 @@ export function createCollector(opts: CollectorOptions): Collector {
   // ── lifecycle state ──────────────────────────────────────────────────────
   let started = false; // the host called start()
   let attached = false; // listeners are live (started AND consented)
-  let consented = opts.consent !== "denied";
+  // Consent is denied unless the host grants it explicitly (owner ruling,
+  // 2026-11-08). A callback is read at start().
+  let consented = false;
+  if (opts.consent === undefined) warnMissingConsent();
   let flushTimer: ReturnType<typeof setInterval> | undefined;
   let viewTimer: ReturnType<typeof setTimeout> | undefined;
   let agentUnsub: (() => void) | undefined;
@@ -428,6 +432,7 @@ export function createCollector(opts: CollectorOptions): Collector {
     start(): void {
       if (started) return;
       started = true;
+      if (!consented) consented = isGranted(opts.consent);
       if (consented) attach();
     },
 
@@ -468,6 +473,44 @@ export function createCollector(opts: CollectorOptions): Collector {
       emit(buildEvent(name, f));
     },
   };
+}
+
+/** True only for an explicit grant. A throwing callback is a denial. */
+function isGranted(consent: ConsentInput | undefined): boolean {
+  if (consent === true || consent === "granted") return true;
+  if (typeof consent === "function") {
+    try {
+      return consent() === true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
+ * Development only. Where `process.env` exists (a bundler, Node), anything but
+ * NODE_ENV=production is development. A plain <script> page has no `process`,
+ * and counts as development on localhost and *.test / *.local hosts.
+ */
+function isDevelopment(): boolean {
+  const env = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process?.env;
+  if (env && typeof env === "object") return env.NODE_ENV !== "production";
+  const host = typeof location !== "undefined" && location ? location.hostname : undefined;
+  if (typeof host !== "string") return false;
+  return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".test") || host.endsWith(".local");
+}
+
+function warnMissingConsent(): void {
+  if (!isDevelopment()) return;
+  try {
+    console.warn(
+      "[fancy-heuristics] No `consent` option was given, so nothing will be collected. " +
+        "Pass `consent: true` or a consent callback, or wire fancy-compliance and call setConsent().",
+    );
+  } catch {
+    /* no console */
+  }
 }
 
 /**
