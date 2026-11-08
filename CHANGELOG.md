@@ -14,6 +14,71 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-08
+
+This release fixes the analytics the showcase was showing: click labels like
+`Fancy UI Kitv0.5DocsLearnPackages…MoreSign` (the whole site header, cut at
+120 characters), no page titles, one pageview per tab on single-page apps, and
+agent tool calls counted as clicks. It needs `particle-academy/fancy-heuristics`
+**0.6** or newer to store the new fields.
+
+### Changed
+
+- **BREAKING — the collector sends wire format v2.** Every batch carries
+  `schemaVersion: 2`, a `batchId` and `sentAt`; every event carries an
+  `eventId` and a `<domain>.<verb>` `name` (`ui.view`, `ui.activate`,
+  `engage.time`, `engage.scroll`, `pointer.sample`, `agent.act`). Events still
+  carry `kind` and `path`, so a server older than 0.6 keeps storing views,
+  clicks, scroll and time as before. **What you must do:** upgrade
+  `fancy-heuristics` to 0.6 first. If you read raw batches yourself, read
+  `name` instead of `kind`.
+- **BREAKING — click labels come from the clicked control only.** The old
+  resolver climbed five ancestors and used the fifth one's `textContent`,
+  which joins text with no separator. Clicks now carry `target: { component,
+  part, instance, role, name }`: react-fancy's `data-react-fancy-*` handles,
+  `data-<x>-control` / `-part`, `data-heuristics-id` / `data-fancy-id` / `id`
+  inside the component, and the control's accessible name (60 characters at
+  most, whitespace collapsed). No free-text `label` is sent. `data-testid` is
+  no longer used as a handle. **What you must do:** nothing, unless you relied
+  on `data-testid` for analytics; use `data-heuristics-id` instead.
+- **BREAKING — agent activity is `agent.act`, not a click.** The verb is in
+  `props.action`, the surface in `target.component`, and no pointer
+  coordinates are sent, so agent actions no longer land on click counts or
+  heatmaps. `mapActivityToEvent` returns the v2 event. **What you must do:**
+  nothing, unless you call `mapActivityToEvent` directly.
+- **BREAKING — pointer samples are off by default.** They were most of the
+  stored rows. Turn them on with `collect: "research"` or
+  `track: { pointer: true }`.
+- **Dwell is now active time (`engage.time`).** It counts only while the tab
+  is visible and there was input in the last 30 s, and it is sent per view
+  (on navigation, on hide, on `pagehide`, and every 15 s) rather than every
+  1.5 s. An idle open tab no longer accumulates time.
+- **Scroll is now milestones** (25, 50, 75, 90, 100), each once per view,
+  instead of every new maximum.
+- A batch the transport refuses is retried unchanged, with the same
+  `batchId`, so the server can drop a duplicate.
+- `describeTarget` is deprecated. It now returns the resolved `instance` and
+  accessible `name`, never a container's text.
+
+### Added
+
+- **Single-page pageviews.** `ui.view` is recorded on `pushState`,
+  `popstate`, the Navigation API's `navigatesuccess` and Inertia's
+  `inertia:navigate`. `replaceState` on the same URL is ignored and repeats
+  within 500 ms count once. The title is read 50 ms after the navigation
+  (`viewDelayMs`), once the new page has set it. `stop()` puts
+  `history.pushState` / `replaceState` back. `spa: false` turns detection off;
+  `collector.view()` records one by hand.
+- **Route and title as separate fields.** `route: () => ({ name, pattern })`
+  and `title: () => string` (default `document.title`, bounded to 120). The
+  title is sent on `ui.view` only.
+- **Consent.** `consent: "denied"` attaches no listener and sends nothing
+  until `setConsent(true)`. `setConsent(false)` stops collection at once and
+  drops anything not yet sent. Omitted, consent is `"granted"`, as before.
+- **Collection tiers.** `collect: "essential" | "analytics" | "research"`.
+- `collector.track(name, { target, props })`, `resolveTarget()`,
+  `buildEvent()`, `CORE_NAMES`, `kindForName()` and the v2 types.
+
 ### Fixed
 
 - **`CHANGELOG.md` is now in the published tarball.** `files` did not whitelist it, so npm never shipped it — and this package puts breaking changes in MINOR releases and tells you in the README to read the entry before taking one. The instruction existed for the author, who has the file, and not for the consumer, who is the only one being instructed. Nothing for you to do; the file simply arrives from this release on.

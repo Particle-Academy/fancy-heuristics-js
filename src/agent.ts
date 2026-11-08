@@ -6,8 +6,8 @@
  * collector keeps working for humans only. The import is dynamic + best-effort
  * so the peer never becomes a hard runtime dependency.
  */
-import { buildClick, buildDwell } from "./events.ts";
-import type { HeuristicsEvent } from "./types.ts";
+import { buildEvent } from "./events.ts";
+import type { EventProps, EventTarget2, HeuristicsEventV2 } from "./types.ts";
 
 /** The slice of the AutoActivityEvent shape we consume. */
 interface AutoActivityEventLike {
@@ -32,49 +32,53 @@ interface AutoCommonModule {
 
 export interface AgentTapOptions {
   path: () => string;
-  emit: (event: HeuristicsEvent) => void;
+  emit: (event: HeuristicsEventV2) => void;
   /** Override the dynamic import (tests inject a mock module here). */
   loadModule?: () => Promise<AutoCommonModule | undefined>;
 }
 
 /**
- * Map one activity event to an `actor:"agent"` Event. Activities carrying a
- * `dwellMs` meta become dwell events; everything else is treated as a discrete
- * "click"-style interaction on the named target. Returns undefined when the
- * activity isn't from an agent/flow source.
+ * Map one activity event to an `actor:"agent"` wire-v2 event. An activity
+ * carrying a `dwellMs` meta becomes `engage.time`; everything else becomes
+ * `agent.act`, with the real verb in `props.action` and the surface in
+ * `target.component`. An agent action is never recorded as a click
+ * (`ui.activate`), and it carries no pointer coordinates, so it can never
+ * land on a heatmap. Returns undefined when the activity isn't from an
+ * agent/flow source.
  */
 export function mapActivityToEvent(
   e: AutoActivityEventLike,
   path: string,
-): HeuristicsEvent | undefined {
+): HeuristicsEventV2 | undefined {
   const source = e.source ?? "agent";
   if (source !== "agent" && source !== "flow") return undefined;
 
-  const targetId = e.target?.elementId;
-  const label = e.target?.label;
-  const dwellMs = numericMeta(e.meta, "dwellMs");
+  const target: EventTarget2 = { component: handle(e.target?.kind) ?? "none" };
+  const instance = handle(e.target?.elementId);
+  if (instance) target.instance = instance;
+  const name = boundedName(e.target?.label);
+  if (name) target.name = name;
 
+  const props: EventProps = { action: handle(e.action) ?? "unknown", source };
+  const agent = handle(e.agentId);
+  if (agent) props.agent = agent;
+
+  const dwellMs = numericMeta(e.meta, "dwellMs");
   if (dwellMs !== undefined) {
-    const ev = buildDwell({ path, ts: e.timestamp, dwellMs, actor: "agent" });
-    if (targetId !== undefined) ev.targetId = targetId;
-    if (label !== undefined) ev.label = label;
-    ev.meta = { action: e.action, agentId: e.agentId, source };
-    return ev;
+    return buildEvent("engage.time", { actor: "agent", path, ts: e.timestamp, dwellMs, target, props });
   }
 
-  const ev = buildClick({
-    path,
-    ts: e.timestamp,
-    x: numericMeta(e.meta, "x") ?? 0,
-    y: numericMeta(e.meta, "y") ?? 0,
-    vw: numericMeta(e.meta, "vw") ?? 0,
-    vh: numericMeta(e.meta, "vh") ?? 0,
-    actor: "agent",
-    targetId,
-    label,
-    meta: { action: e.action, agentId: e.agentId, source },
-  });
-  return ev;
+  return buildEvent("agent.act", { actor: "agent", path, ts: e.timestamp, target, props });
+}
+
+function handle(v: unknown): string | undefined {
+  return typeof v === "string" && v !== "" ? v.slice(0, 64) : undefined;
+}
+
+function boundedName(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const s = v.replace(/\s+/g, " ").trim();
+  return s ? s.slice(0, 60) : undefined;
 }
 
 function numericMeta(meta: Record<string, unknown> | undefined, key: string): number | undefined {

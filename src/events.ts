@@ -3,7 +3,35 @@
  * contract. Kept side-effect-free so they unit-test without a DOM. Optional
  * fields are omitted (never `null`) when not applicable.
  */
-import type { Actor, EventKind, HeuristicsEvent } from "./types.ts";
+import { kindForName } from "./names.ts";
+import { generateSessionId } from "./session.ts";
+import type { Actor, EventKind, HeuristicsEvent, HeuristicsEventV2 } from "./types.ts";
+
+/** Maximum length of a page title on the wire. */
+export const MAX_TITLE = 120;
+
+/**
+ * Build a wire-v2 event. `eventId` and the v1 `kind` projection are filled
+ * in; undefined optional fields are left out, never sent as null.
+ */
+export function buildEvent(
+  name: string,
+  fields: Omit<HeuristicsEventV2, "eventId" | "name" | "kind" | "actor"> & { actor?: Actor },
+): HeuristicsEventV2 {
+  const e: HeuristicsEventV2 = {
+    eventId: generateSessionId(),
+    name,
+    kind: kindForName(name),
+    actor: fields.actor ?? "human",
+    path: fields.path,
+    ts: fields.ts,
+  };
+  for (const key of ["route", "title", "target", "props", "x", "y", "vw", "vh", "scrollPct", "dwellMs"] as const) {
+    const v = fields[key];
+    if (v !== undefined) (e as unknown as Record<string, unknown>)[key] = v;
+  }
+  return e;
+}
 
 /** Common fields every event carries. */
 function base(kind: EventKind, actor: Actor, path: string, ts: number): HeuristicsEvent {

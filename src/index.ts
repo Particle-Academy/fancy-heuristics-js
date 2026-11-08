@@ -8,7 +8,11 @@
  * for a `<script>`-tag auto-init.
  */
 export { createCollector, describeTarget } from "./collector.ts";
+export { resolveTarget, type ResolveTargetOptions } from "./target.ts";
+export { CORE_NAMES, kindForName } from "./names.ts";
 export {
+  buildEvent,
+  MAX_TITLE,
   buildPageview,
   buildClick,
   buildScroll,
@@ -30,8 +34,16 @@ export type {
   Collector,
   CollectorOptions,
   CollectBatch,
+  CollectBatchV2,
+  CollectLevel,
   EventKind,
+  EventKindV2,
+  EventName,
+  EventProps,
+  EventTarget2,
   HeuristicsEvent,
+  HeuristicsEventV2,
+  RouteInfo,
   SessionContext,
   TrackConfig,
 } from "./types.ts";

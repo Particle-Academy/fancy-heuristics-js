@@ -3,20 +3,25 @@
 [![Fancified](art/fancified.svg)](https://particle.academy)
 
 Zero-dependency **browser collector SDK** for [Fancy
-Heuristics](https://github.com/Particle-Academy/fancy-heuristics). It batches
-human **and** agent interaction events — `pageview`, `click`, `scroll` depth,
-`pointer` heatmap samples, and `dwell` time — and ships them to a
-`fancy-heuristics` PHP ingestion endpoint via `navigator.sendBeacon`.
-
-This is the JS/TS mirror of the PHP record surface; the two share one **frozen
-wire contract** so the collector and the ingestion API evolve independently.
+Heuristics](https://github.com/Particle-Academy/fancy-heuristics). It records
+human **and** agent activity as named events (`ui.view`, `ui.activate`,
+`engage.time`, `engage.scroll`, `agent.act`, …) and ships them to a
+`fancy-heuristics` ingestion endpoint via `navigator.sendBeacon`.
 
 - **Zero runtime dependencies.**
+- Labels come from the **activated control only**: react-fancy's
+  `data-react-fancy-*` handles, `data-*` part and instance handles, and the
+  control's accessible name. A container's text is never used.
+- Correct pageviews on **single-page apps** (History API, Navigation API,
+  Inertia), with the route and the page title as separate fields.
 - Optional peer `@particle-academy/fancy-auto-common` — when present, agent /
-  flow activity is folded into the same event stream tagged `actor:"agent"`. When
-  absent, the SDK no-ops gracefully (humans only).
+  flow activity is recorded as `agent.act`, never as a click.
 - Ships **ESM + CJS + a minified IIFE global** (`window.FancyHeuristics`) for
   `<script>`-tag embed, plus a `./react` hook.
+
+Needs `particle-academy/fancy-heuristics` **0.6 or newer** to store the v2
+fields. An older server still stores views, clicks, scroll and time under
+their v1 kinds and drops agent events.
 
 ## Install
 
@@ -32,16 +37,43 @@ import { createCollector } from "@particle-academy/fancy-heuristics-js";
 const collector = createCollector({
   siteKey: "YOUR_SITE_KEY",
   endpoint: "https://your-host/heuristics", // /collect is appended on flush
+  consent: hasAnalyticsConsent ? "granted" : "denied",
+  // Laravel + Inertia: share the route from HandleInertiaRequests.
+  route: () => ({ name: page.props.route?.name, pattern: page.props.route?.uri }),
 });
 collector.start();
-// later, e.g. on SPA route teardown:
-// collector.stop();   // flushes remaining events + detaches listeners
+// collector.setConsent(true)  when the visitor agrees; false withdraws at once.
+// collector.view()            only if you turn off automatic SPA detection.
+// collector.stop()            flushes remaining events + detaches listeners.
 ```
 
-`start()` emits the initial `pageview`, attaches **one** delegated capture-phase
-`click` listener on `document`, a throttled passive `scroll` listener (tracks max
-depth), a throttled passive `pointermove` sampler (heatmap), and dwell accounting
-via `visibilitychange`. Events buffer and flush every ~1.5s and on `pagehide`.
+What `start()` records (the `analytics` tier):
+
+| Event | When |
+|---|---|
+| `ui.view` | On start and on every single-page navigation (`pushState`, `popstate`, the Navigation API, `inertia:navigate`). `replaceState` on the same URL and repeats within 500 ms count once. Carries `route` and `title`. |
+| `ui.activate` | A click, with `target: { component, part?, instance?, role?, name? }`. |
+| `engage.time` | Active time per view: the tab is visible **and** there was input in the last 30 s. Sent on navigation, on hide, on `pagehide` and every 15 s. |
+| `engage.scroll` | Scroll milestones 25, 50, 75, 90, 100, each once per view. |
+| `agent.act` | Agent activity, with the verb in `props.action`. |
+| `pointer.sample` | Pointer heatmap samples. **Research tier only** (`collect: "research"`). |
+
+### How a click is resolved
+
+1. The closest interactive control (`button`, `a[href]`, form fields,
+   `summary`, ARIA control roles). Nothing further up is used.
+2. `component` from `data-react-fancy-<x>` (`button`, `streaming-audio`, …);
+   `"none"` when unmarked.
+3. `part` from `data-<x>-control` / `data-<x>-part`, e.g. StreamingAudio's
+   `data-streaming-control="play"`.
+4. `instance` from `data-heuristics-id`, `data-fancy-id` or `id`, **inside the
+   component only**. `data-testid` is not used.
+5. `name` from `aria-label`, then `aria-labelledby`, then the control's own
+   text if 60 characters or fewer, then `title`. Whitespace is collapsed.
+   Form values are never read. `labels: "none"` turns names off.
+
+So a click on the radio's Play button records
+`{ component: "streaming-audio", part: "play", instance: "site-radio-player", role: "button", name: "Play" }`.
 
 ### Options
 
@@ -49,9 +81,18 @@ via `visibilitychange`. Events buffer and flush every ~1.5s and on `pagehide`.
 |---|---|---|
 | `siteKey` | — (required) | Identifies the site to the endpoint. |
 | `endpoint` | — (required) | Base URL; `/collect` is appended on flush. |
-| `track` | all on | Per-signal opt-out: `{ pageview, dwell, click, scroll, pointer, agent }`. |
+| `collect` | `"analytics"` | `"essential"` (only `track()` / `view()`), `"analytics"`, or `"research"` (adds pointer samples). |
+| `track` | from `collect` | Per-signal override: `{ pageview, dwell, click, scroll, pointer, agent }`. |
+| `consent` | `"granted"` | `"denied"` attaches nothing and sends nothing until `setConsent(true)`. |
+| `route` | none | `() => ({ name?, pattern? })` for the current location. |
+| `title` | `document.title` | `() => string` for the current view. Bounded to 120 characters. |
+| `labels` | `"control"` | `"none"` records no accessible names. |
+| `spa` | `true` | Detect single-page navigations. |
+| `viewDelayMs` | `50` | Wait after a navigation before reading the title. |
+| `idleMs` | `30000` | Input gap after which active time stops. |
+| `engageEmitMs` | `15000` | How often an open view sends its active time. |
 | `flushMs` | `1500` | Batch flush window. |
-| `pointerThrottleMs` | `120` | Pointer-sample throttle. |
+| `pointerThrottleMs` | `120` | Pointer-sample throttle (research tier). |
 | `scrollThrottleMs` | `200` | Scroll-sample throttle. |
 
 ## `<script>`-tag embed
@@ -61,12 +102,12 @@ via `visibilitychange`. Events buffer and flush every ~1.5s and on `pagehide`.
   src="https://unpkg.com/@particle-academy/fancy-heuristics-js/dist/fancy-heuristics.global.min.js"
   data-site="YOUR_SITE_KEY"
   data-endpoint="https://your-host/heuristics"
-  data-track="pageview,click,scroll,pointer,dwell,agent"></script>
+  data-track="pageview,click,scroll,dwell,agent"></script>
 ```
 
 The bundle auto-initialises off its own `data-*` attributes. `data-site` and
-`data-endpoint` are required; omitting `data-track` tracks everything. The global
-also exposes `FancyHeuristics.createCollector({...})` for programmatic use.
+`data-endpoint` are required; omitting `data-track` uses the `analytics` tier.
+The global also exposes `FancyHeuristics.createCollector({...})`.
 
 ## React
 
@@ -84,42 +125,45 @@ The hook creates + starts a collector for the component's lifetime and stops
 
 ## Agent activity
 
-If `@particle-academy/fancy-auto-common` resolves at runtime, the collector
-subscribes to its activity registry and maps events whose `source` is `"agent"`
-or `"flow"` into `actor:"agent"` Events (`dwell` when the activity carries a
-`dwellMs` meta, otherwise a discrete `click`-style interaction). The import is
-dynamic and best-effort, so the peer never becomes a hard dependency — heatmaps
-and focus maps then cover agents and humans on the same surface.
+If `@particle-academy/fancy-auto-common` resolves at runtime, activity whose
+`source` is `"agent"` or `"flow"` becomes `agent.act` (or `engage.time` when it
+carries a `dwellMs` meta), with `target.component` from the activity's kind,
+`props.action` the verb, and no pointer coordinates. The import is dynamic and
+best-effort, so the peer never becomes a hard dependency.
 
-## The wire contract
-
-Every event matches this shape exactly (optional fields are **omitted**, never
-`null`, when not relevant to the `kind`):
+## The wire contract (v2)
 
 ```ts
-type Event = {
-  kind: "pageview" | "click" | "scroll" | "pointer" | "dwell";
+type EventV2 = {
+  eventId: string;          // unique per event
+  name: string;             // "<domain>.<verb>", registered on the server
+  kind: string;             // v1 projection, for servers older than v2
   actor: "human" | "agent";
-  path: string;          // location.pathname
-  ts: number;            // ms epoch
-  x?: number; y?: number;   // pointer/click, viewport coords
-  vw?: number; vh?: number; // viewport size (heatmap normalisation)
-  scrollPct?: number;       // scroll depth 0..100
-  dwellMs?: number;         // time-on-page chunk
-  targetId?: string; label?: string;
-  meta?: object;
+  path: string;             // pathname only
+  ts: number;               // ms epoch
+  route?: { name?: string; pattern?: string };
+  title?: string;           // ui.view only, ≤ 120
+  target?: { component: string; part?: string; instance?: string; role?: string; name?: string };
+  props?: Record<string, string | number | boolean>;
+  x?: number; y?: number; vw?: number; vh?: number;
+  scrollPct?: number; dwellMs?: number;
 };
 ```
 
 Batches POST to `${endpoint}/collect` as:
 
 ```json
-{ "siteKey": "...", "sessionId": "...", "events": [ /* Event, ... */ ] }
+{ "schemaVersion": 2, "batchId": "…", "siteKey": "…", "sessionId": "…",
+  "sentAt": 0, "context": { }, "events": [ ] }
 ```
 
-`sessionId` is persisted in `sessionStorage` (generated with `crypto.randomUUID`,
-falling back to `crypto.getRandomValues`, then a time+counter id — never
-`Math.random`).
+`batchId` stays the same when a refused batch is retried, so the server never
+stores it twice. `context` rides on the first batch only. `sessionId` is
+persisted in `sessionStorage` (generated with `crypto.randomUUID`, falling back
+to `crypto.getRandomValues`, then a time+counter id — never `Math.random`).
+
+The v1 builders (`buildPageview`, `buildClick`, …) are still exported for
+callers that build v1 events themselves; the server accepts both.
 
 ## Build / test
 

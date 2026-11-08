@@ -1,10 +1,15 @@
 /**
- * Event buffer + transport. Accumulates events and ships them as a single
- * `CollectBatch` to `${endpoint}/collect`. Prefers `navigator.sendBeacon`
+ * Event buffer + transport. Accumulates events and ships them as one wire-v2
+ * `CollectBatchV2` to `${endpoint}/collect`. Prefers `navigator.sendBeacon`
  * (survives page unload), falling back to a keepalive `fetch`. The buffer is a
  * plain array so it unit-tests with an injected `send` spy and no network.
+ *
+ * A batch that the transport refuses is kept AS IS, with its `batchId`, and
+ * retried before anything newer. The server uses `batchId` as the idempotency
+ * key, so a retry that did reach it the first time is not stored twice.
  */
-import type { CollectBatch, HeuristicsEvent, SessionContext } from "./types.ts";
+import { generateSessionId } from "./session.ts";
+import type { CollectBatchV2, HeuristicsEventV2, SessionContext } from "./types.ts";
 
 /** Pluggable transport — returns true if the batch was handed off. */
 export type SendFn = (url: string, body: string) => boolean;
@@ -20,15 +25,19 @@ export interface BufferOptions {
   context?: SessionContext;
   /** Transport. Defaults to sendBeacon → fetch. */
   send?: SendFn;
+  /** Clock for `sentAt`. Defaults to `Date.now`. */
+  now?: () => number;
 }
 
 export class EventBuffer {
-  private events: HeuristicsEvent[] = [];
+  private events: HeuristicsEventV2[] = [];
+  private pending: CollectBatchV2 | undefined;
   private readonly siteKey: string;
   private readonly url: string;
   private readonly sessionId: string;
   private readonly send: SendFn;
-  /** Pending once-per-session context; cleared after the first successful send. */
+  private readonly now: () => number;
+  /** Pending once-per-session context; cleared once a batch carrying it is sent. */
   private context: SessionContext | undefined;
 
   constructor(opts: BufferOptions) {
@@ -37,16 +46,17 @@ export class EventBuffer {
     this.sessionId = opts.sessionId;
     this.context = opts.context;
     this.send = opts.send ?? defaultSend;
+    this.now = opts.now ?? (() => Date.now());
   }
 
   /** Queue one event for the next flush. */
-  add(event: HeuristicsEvent): void {
+  add(event: HeuristicsEventV2): void {
     this.events.push(event);
   }
 
-  /** Number of buffered (un-flushed) events. */
+  /** Number of unsent events, including a batch awaiting retry. */
   get size(): number {
-    return this.events.length;
+    return this.events.length + (this.pending?.events.length ?? 0);
   }
 
   /** The collect URL this buffer ships to. */
@@ -54,26 +64,45 @@ export class EventBuffer {
     return this.url;
   }
 
+  /** Drop everything unsent (consent withdrawn). */
+  clear(): void {
+    this.events = [];
+    this.pending = undefined;
+  }
+
   /**
-   * Ship the buffered events as one batch. No-op when empty. On a failed
-   * handoff the events are kept so the next flush retries them.
+   * Ship a batch awaiting retry, then the queued events as a new batch. No-op
+   * when empty. A refused batch is kept, unchanged, for the next flush.
    */
   flush(): void {
+    if (this.pending) {
+      if (!this.ship(this.pending)) return;
+      this.pending = undefined;
+    }
     if (this.events.length === 0) return;
-    const batch: CollectBatch = {
+
+    const batch: CollectBatchV2 = {
+      schemaVersion: 2,
+      batchId: generateSessionId(),
       siteKey: this.siteKey,
       sessionId: this.sessionId,
+      sentAt: this.now(),
       events: this.events,
     };
-    // Attach the once-per-session context to the first batch only.
-    if (this.context !== undefined) batch.context = this.context;
-    const body = JSON.stringify(batch);
-    const ok = this.send(this.url, body);
-    if (ok) {
-      this.events = [];
-      // Drop the context so subsequent batches stay small. Kept on failure so
-      // the retry still carries it.
+    if (this.context !== undefined) {
+      batch.context = this.context;
       this.context = undefined;
+    }
+    this.events = [];
+
+    if (!this.ship(batch)) this.pending = batch;
+  }
+
+  private ship(batch: CollectBatchV2): boolean {
+    try {
+      return this.send(this.url, JSON.stringify(batch));
+    } catch {
+      return false;
     }
   }
 }

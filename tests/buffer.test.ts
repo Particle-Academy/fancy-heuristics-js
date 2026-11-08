@@ -32,7 +32,30 @@ test("joinCollect stays linear on a pathological endpoint", () => {
   assert.ok(ms < 250, `joinCollect took ${ms.toFixed(1)}ms — expected linear time`);
 });
 
-test("flush sends one batch matching the wire contract { siteKey, sessionId, events }", () => {
+test("a refused batch is retried unchanged, with the same batchId, before newer events", () => {
+  const bodies: string[] = [];
+  let attempts = 0;
+  const buf = new EventBuffer({
+    siteKey: "S",
+    endpoint: "https://h",
+    sessionId: "x",
+    send: (_u, body) => {
+      bodies.push(body);
+      return ++attempts > 1;
+    },
+  });
+  buf.add(buildPageview("/a", 1) as any);
+  buf.flush(); // refused
+  buf.add(buildPageview("/b", 2) as any);
+  buf.flush(); // retry, then the new batch
+  const [first, retry, next] = bodies.map((b) => JSON.parse(b));
+  assert.equal(retry.batchId, first.batchId);
+  assert.deepEqual(retry.events, first.events);
+  assert.notEqual(next.batchId, first.batchId);
+  assert.equal(next.events[0].path, "/b");
+});
+
+test("flush sends one wire-v2 batch { schemaVersion, batchId, siteKey, sessionId, sentAt, events }", () => {
   const sent: Array<{ url: string; body: string }> = [];
   const buf = new EventBuffer({
     siteKey: "SITE",
@@ -53,7 +76,8 @@ test("flush sends one batch matching the wire contract { siteKey, sessionId, eve
   assert.equal(sent.length, 1);
   assert.equal(sent[0]!.url, "https://h/heuristics/collect");
   const batch = JSON.parse(sent[0]!.body) as CollectBatch;
-  assert.deepEqual(Object.keys(batch).sort(), ["events", "sessionId", "siteKey"]);
+  assert.deepEqual(Object.keys(batch).sort(), ["batchId", "events", "schemaVersion", "sentAt", "sessionId", "siteKey"]);
+  assert.equal((batch as any).schemaVersion, 2);
   assert.equal(batch.siteKey, "SITE");
   assert.equal(batch.sessionId, "sess-1");
   assert.equal(batch.events.length, 2);

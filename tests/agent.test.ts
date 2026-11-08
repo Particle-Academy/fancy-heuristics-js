@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mapActivityToEvent, tapAgentActivity } from "../src/agent.ts";
 
-test("maps an agent-source activity to actor:agent click event", () => {
+test("maps an agent-source activity to agent.act, never a click", () => {
   const ev = mapActivityToEvent(
     {
       agentId: "agent-7",
@@ -14,13 +14,15 @@ test("maps an agent-source activity to actor:agent click event", () => {
     "/checkout",
   );
   assert.ok(ev);
-  assert.equal(ev!.kind, "click");
+  assert.equal(ev!.name, "agent.act");
+  assert.equal(ev!.kind, "agent");
+  assert.notEqual(ev!.kind, "click");
   assert.equal(ev!.actor, "agent");
   assert.equal(ev!.path, "/checkout");
   assert.equal(ev!.ts, 4242);
-  assert.equal(ev!.targetId, "email");
-  assert.equal(ev!.label, "the email field");
-  assert.deepEqual(ev!.meta, { action: "form_fill", agentId: "agent-7", source: "agent" });
+  assert.deepEqual(ev!.target, { component: "form", instance: "email", name: "the email field" });
+  assert.deepEqual(ev!.props, { action: "form_fill", source: "agent", agent: "agent-7" });
+  assert.equal(ev!.x, undefined, "no pointer coordinates: an agent action never reaches a heatmap");
 });
 
 test("flow source also becomes actor:agent", () => {

@@ -83,12 +83,91 @@ export interface CollectBatch {
   context?: SessionContext;
 }
 
-/** Which signal families to capture. All default to `true`. */
+// ── Wire v2 ────────────────────────────────────────────────────────────────
+
+/**
+ * A structured event name, `<domain>.<verb>`: `ui.view`, `ui.activate`,
+ * `engage.time`, `engage.scroll`, `pointer.sample`, `agent.act`,
+ * `agent.tool`, … The server accepts only registered names.
+ */
+export type EventName = string;
+
+/** The v1 projection of a v2 event, so a server older than v2 still stores it. */
+export type EventKindV2 = EventKind | "agent" | "custom";
+
+/** What was activated. Every field is a handle, never free page text. */
+export interface EventTarget2 {
+  /** From `data-react-fancy-<component>`, e.g. "button", "streaming-audio"; "none" when unmarked. */
+  component: string;
+  /** From a `data-<x>-control` / `data-<x>-part` attribute, e.g. "play". */
+  part?: string;
+  /** `data-heuristics-id`, `data-fancy-id` or `id`, found inside the component only. */
+  instance?: string;
+  /** ARIA role, or the role implied by the tag, of the activated control. */
+  role?: string;
+  /** Accessible name of the activated control only, whitespace-normalised, ≤ 60 chars. */
+  name?: string;
+}
+
+/** Host route identity, separate from the path and from the title. */
+export interface RouteInfo {
+  /** Host route name, e.g. "packages.show". */
+  name?: string;
+  /** Route pattern, e.g. "/packages/{slug}". */
+  pattern?: string;
+}
+
+/** A scalar property bag, bounded by the server. */
+export type EventProps = Record<string, string | number | boolean>;
+
+export interface HeuristicsEventV2 {
+  /** Unique per event; makes a replayed event harmless. */
+  eventId: string;
+  name: EventName;
+  /** v1 projection for older servers; newer servers derive it from `name`. */
+  kind: EventKindV2;
+  actor: Actor;
+  /** Pathname only: never the query string or fragment. */
+  path: string;
+  ts: number;
+  route?: RouteInfo;
+  /** Page title. Only on `ui.view`, ≤ 120 chars. */
+  title?: string;
+  target?: EventTarget2;
+  props?: EventProps;
+  x?: number;
+  y?: number;
+  vw?: number;
+  vh?: number;
+  scrollPct?: number;
+  dwellMs?: number;
+}
+
+export interface CollectBatchV2 {
+  schemaVersion: 2;
+  /** Stable across retries of the same batch: the server's idempotency key. */
+  batchId: string;
+  siteKey: string;
+  sessionId: string;
+  sentAt: number;
+  context?: SessionContext;
+  events: HeuristicsEventV2[];
+}
+
+/**
+ * Collection tiers. `essential`: only what the host emits itself (`track()`,
+ * `view()`); `analytics` (default): views, activations, scroll milestones,
+ * active time, agent activity; `research`: analytics plus pointer samples.
+ */
+export type CollectLevel = "essential" | "analytics" | "research";
+
+/** Which signal families to capture. Omitted families follow the collect level. */
 export interface TrackConfig {
   pageview?: boolean;
   dwell?: boolean;
   click?: boolean;
   scroll?: boolean;
+  /** Pointer samples (heatmap). Off unless `collect: "research"` or set true here. */
   pointer?: boolean;
   /** Tap the fancy-auto-common activity bus for agent-actor events. */
   agent?: boolean;
@@ -99,8 +178,33 @@ export interface CollectorOptions {
   siteKey: string;
   /** Base URL, e.g. "https://host/heuristics". `/collect` is appended on flush. */
   endpoint: string;
-  /** Per-signal opt-out. Omitted families are tracked. */
+  /** Collection tier. Default `"analytics"`. */
+  collect?: CollectLevel;
+  /** Per-signal override of the tier. */
   track?: TrackConfig;
+  /**
+   * Analytics consent. `"denied"` attaches nothing and sends nothing until
+   * `setConsent(true)`. Omitted = `"granted"`, for hosts that already gate
+   * mounting on consent themselves.
+   */
+  consent?: "granted" | "denied";
+  /** Route name / pattern for the current location. Read on every view. */
+  route?: () => RouteInfo | undefined;
+  /** Page title for the current view. Default `document.title`. */
+  title?: () => string | undefined;
+  /** `"none"` records no accessible names at all. Default `"control"`. */
+  labels?: "control" | "none";
+  /** Detect single-page navigations (History / Navigation API). Default true. */
+  spa?: boolean;
+  /**
+   * Delay before a detected navigation records its view, so the new page's
+   * title has applied. Default 50 ms.
+   */
+  viewDelayMs?: number;
+  /** Idle cut-off for active time. Default 30 000 ms. */
+  idleMs?: number;
+  /** How often an active-time chunk is emitted while a view stays open. Default 15 000 ms. */
+  engageEmitMs?: number;
   /** Flush window in ms. Default 1500. */
   flushMs?: number;
   /** Pointer-sample throttle in ms. Default 120. */
@@ -115,10 +219,20 @@ export interface CollectorOptions {
 }
 
 export interface Collector {
-  /** Attach listeners + emit the initial pageview. Idempotent. */
+  /** Attach listeners + emit the initial view. Idempotent. */
   start(): void;
   /** Detach all listeners, flush remaining events, stop timers. Idempotent. */
   stop(): void;
   /** Send the buffered events now (via sendBeacon / fetch fallback). */
   flush(): void;
+  /**
+   * Record a view of the current location now. Call it after your router has
+   * finished a navigation if automatic detection is off. A repeat for the same
+   * path within 500 ms is ignored.
+   */
+  view(): void;
+  /** Grant or withdraw analytics consent. Withdrawal drops anything unsent. */
+  setConsent(granted: boolean): void;
+  /** Record a named event. Unregistered names are rejected by the server. */
+  track(name: EventName, fields?: { target?: EventTarget2; props?: EventProps; actor?: Actor }): void;
 }
